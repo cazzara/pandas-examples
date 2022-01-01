@@ -5,6 +5,8 @@ Use pandas data analysis framework to read and plot data from NOAA (https://www.
 import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 # CSV data from 10 weather stations across the Virginia Beach/Norfolk area spanning 1909 - 2021
 
@@ -23,12 +25,14 @@ min      15.000000      11.000000     -71.000000      0.000000
 max      91.000000     106.000000      92.000000    612.000000
 """
 
-TITLE = "Virginia Beach {} Average Max/Min Temp (1909 - 2021)"
+TITLE = "Virginia Beach Yearly Average Temp (1909 - 2021)"
 FIGSIZE = (18, 10)
 
 
 def iterate_by_offset(temps: pd.DataFrame, offset: pd.DateOffset) -> pd.DataFrame:
     """
+    Take all weather station data for a given point in time and take the average of the max/min values
+
     temps: DataFrame with daily temperature data with columns DATE, TMAX, TMIN
     offset: DateOffset with desired granularity for rolling average 
     
@@ -39,8 +43,10 @@ def iterate_by_offset(temps: pd.DataFrame, offset: pd.DateOffset) -> pd.DataFram
     results = []
     while start <= stop:
         next_period = start + offset
-        print(f"Taking average max temp between {start} and {next_period}")
-        period_temp_data = temps[(temps["DATE"] >= start) & (temps["DATE"] < next_period)]
+        print(f"Taking average temp between {start} and {next_period}")
+        period_temp_data = temps[
+            (temps["DATE"] >= start) & (temps["DATE"] < next_period)
+        ]
         tmax_avg = period_temp_data["TMAX"].aggregate("mean")
         tmin_avg = period_temp_data["TMIN"].aggregate("mean")
         results.append((start, tmax_avg, tmin_avg))
@@ -49,18 +55,34 @@ def iterate_by_offset(temps: pd.DataFrame, offset: pd.DateOffset) -> pd.DataFram
     return avg_temps
 
 
-def plot_by_month(temps: pd.DataFrame):
-    avg_temps = iterate_by_offset(temps, pd.DateOffset(months=1))
-    avg_temps.plot(x="date", y=["tmax", "tmin"], title=TITLE.format("Monthly"), figsize=FIGSIZE)
+def linear_regression(avg_temps, ax, label):
+    avg_temps["time"] = np.arange(len(avg_temps.index))
+    col_idx = 2 if label == "tmin" else 1
+    X = avg_temps.iloc[:, 3].values.reshape(-1, 1) # time
+    Y = avg_temps.iloc[:, col_idx].values.reshape(-1, 1) # tmin/tmax
+    linear_regressor = LinearRegression()
+    linear_regressor.fit(X, Y)
+    Y_pred = linear_regressor.predict(X)
+    r_2 = round(linear_regressor.score(X, Y), 4)
+    ax.scatter(X, Y, label=label)
+    ax.plot(X, Y_pred, color="red", label=f"Line of Best Fit: R-squared = {r_2}")
+    ax.set_title(TITLE)
+    ax.set_ylabel("Degrees (F)")
+    ax.set_xlabel("Year")
+    ax.legend()
+    
 
 
 def plot_by_year(temps: pd.DataFrame):
+    fig, axes = plt.subplots(2)
+    fig.set_size_inches(FIGSIZE)
     avg_temps = iterate_by_offset(temps, pd.DateOffset(years=1))
-    avg_temps.plot(x="date", y=["tmax", "tmin"], title=TITLE.format("Yearly"), figsize=FIGSIZE)
+    for label, ax in zip(["tmin", "tmax"], axes):
+        linear_regression(avg_temps, ax, label)
+    fig.show()
 
 
 if __name__ == "__main__":
     temps = pd.read_csv(DATAFILE, parse_dates=[2])
-    plot_by_month(temps)
     plot_by_year(temps)
     plt.show()
